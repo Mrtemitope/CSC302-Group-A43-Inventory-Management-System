@@ -1,0 +1,14 @@
+__pycache__/
+data/
+*.py[cod]
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+.env
+.env.*
+!.env.example
+.vercel/
+venv/
+.venv/
+
