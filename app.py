@@ -179,22 +179,36 @@ def verify_password(password: str, salt_hex: str, expected_hex: str) -> bool:
 
 def seed_demo_data(conn: sqlite3.Connection) -> None:
     existing = conn.execute("SELECT user_id FROM users WHERE username = 'admin'").fetchone()
+    if os.environ.get("VERCEL"):
+        required_passwords = ("CSC302_ADMIN_PASSWORD", "CSC302_OFFICER_PASSWORD", "CSC302_PROCUREMENT_PASSWORD")
+        if any(not os.environ.get(name) for name in required_passwords):
+            raise RuntimeError("Set unique CSC302 demo passwords in the deployment environment before enabling demo mode.")
+
+    demo_users = (
+        ("admin", "System Administrator (Demo)", "admin", os.environ.get("CSC302_ADMIN_PASSWORD", "admin123")),
+        ("officer", "Inventory Officer (Demo)", "inventory_officer", os.environ.get("CSC302_OFFICER_PASSWORD", "officer123")),
+        ("procurement", "Procurement Officer (Demo)", "procurement_officer", os.environ.get("CSC302_PROCUREMENT_PASSWORD", "procurement123")),
+    )
     if not existing:
-        if os.environ.get("VERCEL"):
-            required_passwords = ("CSC302_ADMIN_PASSWORD", "CSC302_OFFICER_PASSWORD", "CSC302_PROCUREMENT_PASSWORD")
-            if any(not os.environ.get(name) for name in required_passwords):
-                raise RuntimeError("Set unique CSC302 demo passwords in the deployment environment before enabling demo mode.")
-        demo_users = (
-            ("admin", "System Administrator (Demo)", "admin", os.environ.get("CSC302_ADMIN_PASSWORD", "admin123")),
-            ("officer", "Inventory Officer (Demo)", "inventory_officer", os.environ.get("CSC302_OFFICER_PASSWORD", "officer123")),
-            ("procurement", "Procurement Officer (Demo)", "procurement_officer", os.environ.get("CSC302_PROCUREMENT_PASSWORD", "procurement123")),
-        )
         for username, display_name, role, password in demo_users:
             salt, digest = hash_password(password)
             conn.execute(
                 "INSERT INTO users(username, display_name, role, password_salt, password_hash) VALUES (?, ?, ?, ?, ?)",
                 (username, display_name, role, salt, digest),
             )
+    elif os.environ.get("VERCEL"):
+        # Vercel secrets are write-only. Refresh only the three known demo accounts
+        # from the configured secrets so password updates can take effect after a redeploy.
+        for username, _display_name, role, password in demo_users:
+            account = conn.execute(
+                "SELECT role FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            if account and account["role"] == role:
+                salt, digest = hash_password(password)
+                conn.execute(
+                    "UPDATE users SET password_salt = ?, password_hash = ? WHERE username = ? AND role = ?",
+                    (salt, digest, username, role),
+                )
 
     demo_event = conn.execute("SELECT event_id FROM stocktake_events WHERE event_ref = 'DEMO-2026-001'").fetchone()
     if demo_event:
